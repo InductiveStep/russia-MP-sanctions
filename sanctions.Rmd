@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(fuzzyjoin)
+library(janitor)
+```
+
+
+
+```{r}
+sanctions_tory <-
+  read.csv(
+    "tories_sanctioned.txt",
+    header = F,
+    sep = "\t",
+    encoding = "UTF-8"
+  )
+names(sanctions_tory)[1] <- "long_name"
+sanctions_tory$party <- "Tory"
+
+sanctions_labour <-
+  read.csv(
+    "labour_sanctioned.txt",
+    header = F,
+    sep = "\t",
+    encoding = "UTF-8"
+  )
+names(sanctions_labour)[1] <- "long_name"
+sanctions_labour$party <- "Labour"
+
+sanctions <- bind_rows(sanctions_tory, sanctions_labour)
+```
+
+
+```{r}
+fix_name <- function(s) {
+  latin_name <- str_extract(string = s,
+                pattern = "(?<=\\().*(?=\\))")
+  name_vec <- strsplit(latin_name, split = " ")[[1]]
+  paste(first(name_vec), last(name_vec))
+}
+```
+
+
+```{r}
+sanctions$name <- mapply(fix_name, sanctions$long_name)
+```
+
+
+```{r}
+nrow(sanctions)
+```
+
+```{r}
+current_mps <- read.csv("mps.csv", encoding = "UTF-8") %>%
+  mutate(
+    name  = paste(First.name, toupper(Last.name)),
+    party = Party,
+    Party = NULL
+  )
+```
+
+
+```{r}
+joined <-
+  stringdist_left_join(
+    current_mps,
+    sanctions,
+    by = "name",
+    distance_col = "dist",
+    max_dist = 0
+  )
+
+dup_ids <- joined %>%
+  group_by(Person.ID) %>%
+  summarise(matches = n())
+
+joined <- left_join(joined, dup_ids) %>%
+  mutate(matches = ifelse(is.na(name.y), 0, matches))
+```
+
+```{r}
+joined %>%
+  filter(matches > 1)
+```
+
+Lucky Heather.
+
+
+
+
+```{r}
+left_sanct_join <-
+  stringdist_left_join(
+    sanctions,
+    current_mps,
+    by = "name",
+    distance_col = "dist",
+    max_dist = 0
+  )
+```
+
+
+
+```{r}
+left_sanct_join %>%
+  filter(is.na(name.y)) %>%
+  select(name.x) %>%
+  group_by(name.x) %>%
+  summarise(n = n())
+```
+
+
+
+```{r}
+cleaned <- distinct(joined, name.x, name.y, .keep_all = TRUE)
+```
+
+```{r}
+nrow(cleaned)
+```
+
+```{r}
+cleaned <- cleaned %>%
+  mutate(sanctioned = ifelse(matches > 0, "yes", "no"),
+         party = party.x)
+```
+
+
+
+
+```{r}
+cleaned %>%
+  tabyl(party, sanctioned) %>%
+  mutate(`%` = (100*yes/(yes+no)) %>% round(1))
+```
+
+```{r}
+cleaned %>%
+  filter(sanctioned == "yes") %>%
+  filter(party %in% c("Independent", "DUP"))
+```
+
+
